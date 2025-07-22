@@ -196,6 +196,13 @@ st.markdown("""
     Input your loan data and market rates in JSON format, specify a calculation date,
     and see the accrued interest for each live loan.
 """)
+st.header("Options")
+st.markdown(
+    """
+    ### 1. [Loan Calculator](./testLoanCalc.py)
+    - Click the link above to open the Loan Calculator.
+    """
+)
 
 # Sample data for user reference
 sample_loan_data = json.dumps([
