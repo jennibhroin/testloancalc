@@ -42,22 +42,21 @@ def day_count_fraction(start_date, end_date, convention):
         st.warning(f"Warning: Unsupported day count convention '{convention}'. Defaulting to 'Actual/365'.")
         return (end_date - start_date).days / 365.0
 
-def calculate_loan_accruals(loan_data_json, market_rates_json, calculation_date_str):
+def calculate_loan_accruals(loan_data_json, market_rates_json, calculation_date_str, return_daily_details=False):
     """
     Calculates daily and cumulative interest accruals for a loan portfolio.
 
     Args:
         loan_data_json (str): JSON string representing the loan portfolio data.
-                              Expected to be an array of loan objects.
         market_rates_json (str): JSON string representing market rates.
-                                 Expected to be an object with 'sonia_rates' (daily rates)
-                                 and 't_bill_rates' (e.g., '1-Month T-Bill' rate).
         calculation_date_str (str): The specific date for which to calculate the daily
                                     accrual and the end date for cumulative accrual (YYYY-MM-DD).
+        return_daily_details (bool): If True, also returns a DataFrame with daily interest details.
 
     Returns:
         pd.DataFrame: The updated DataFrame with all interest accruals, or an empty DataFrame
                       if an error occurs or no loans match the criteria.
+        pd.DataFrame (optional): Daily interest details if return_daily_details is True.
     """
     try:
         # 1. Load Data
@@ -94,6 +93,9 @@ def calculate_loan_accruals(loan_data_json, market_rates_json, calculation_date_
 
         # List to store results for each loan
         results_list = []
+
+        # List to store daily details for all loans
+        daily_details = []
 
         # 3. Calculate Accruals for Each Loan
         for index, loan in filtered_df.iterrows():
@@ -151,6 +153,15 @@ def calculate_loan_accruals(loan_data_json, market_rates_json, calculation_date_
                 # Daily interest = Principal * Total Annual Rate * (1 / Days in Year Basis)
                 daily_interest_for_current_day = principal * total_annual_rate * (1.0 / days_in_year_basis)
 
+                # Store daily detail
+                daily_details.append({
+                    'Loan_ID': loan_id,
+                    'Date': current_day_in_period.strftime('%Y-%m-%d'),
+                    'Principal': principal,
+                    'Total_Annual_Rate': total_annual_rate,
+                    'Daily_Interest': daily_interest_for_current_day
+                })
+
                 # Accumulate daily interest for the cumulative total
                 cumulative_accrued_interest_for_loan += daily_interest_for_current_day
 
@@ -178,12 +189,16 @@ def calculate_loan_accruals(loan_data_json, market_rates_json, calculation_date_
                 'Cumulative_Accrued_Interest_to_Calc_Date': cumulative_accrued_interest_for_loan
             })
 
-        # Convert the list of results into a Pandas DataFrame
         output_df = pd.DataFrame(results_list)
+        if return_daily_details:
+            daily_df = pd.DataFrame(daily_details)
+            return output_df, daily_df
         return output_df
 
     except Exception as e:
         st.error(f"Error during calculation: {e}")
+        if return_daily_details:
+            return pd.DataFrame(), pd.DataFrame()
         return pd.DataFrame()
 
 # --- Streamlit Frontend ---
@@ -291,15 +306,15 @@ if st.button("Calculate Accruals"):
         try:
             # Call the calculation function
             with st.spinner('Calculating interest accruals...'):
-                results_df = calculate_loan_accruals(
+                results_df, daily_df = calculate_loan_accruals(
                     loan_data_input,
                     market_rates_input,
-                    calculation_date.strftime('%Y-%m-%d')
+                    calculation_date.strftime('%Y-%m-%d'),
+                    return_daily_details=True
                 )
 
             if not results_df.empty:
                 st.header("Calculation Results")
-                # Display the DataFrame
                 st.dataframe(results_df.style.format({
                     'Principal': "{:,.2f}",
                     'Fixed_Rate': "{:.4%}",
@@ -307,6 +322,17 @@ if st.button("Calculate Accruals"):
                     'Daily_Accrued_Interest_on_Calc_Date': "{:,.4f}",
                     'Cumulative_Accrued_Interest_to_Calc_Date': "{:,.4f}"
                 }), use_container_width=True)
+
+                # Show daily interest calculation details
+                with st.expander("Show Daily Interest Calculations"):
+                    st.dataframe(
+                        daily_df.style.format({
+                            'Principal': "{:,.2f}",
+                            'Total_Annual_Rate': "{:.4%}",
+                            'Daily_Interest': "{:,.4f}"
+                        }),
+                        use_container_width=True
+                    )
             else:
                 st.info("No live loans found for the specified calculation date, or an error occurred during calculation. Please check your inputs and the 'Live_Mask' for loans.")
 
